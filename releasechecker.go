@@ -79,17 +79,25 @@ func (c *Checker) query(owner, name string) (Repository, error) {
 			Description githubql.String
 			URL         githubql.URI
 
-			Releases struct {
+			Refs struct {
 				Edges []struct {
 					Node struct {
-						ID          githubql.ID
-						Name        githubql.String
-						Description githubql.String
-						URL         githubql.URI
-						PublishedAt githubql.DateTime
+						Target struct {
+							Tag struct {
+								Message   githubql.String
+								CommitUrl githubql.URI
+								Tagger    struct {
+									Name  githubql.String
+									Email githubql.String
+									Date  githubql.DateTime
+								}
+							} `graphql:"... on Tag"`
+						}
+						ID   githubql.ID
+						Name githubql.String
 					}
 				}
-			} `graphql:"releases(last: 1)"`
+			} `graphql:"refs(refPrefix: \"refs/tags/\", first: 1, orderBy: {field: TAG_COMMIT_DATE, direction: DESC})"`
 		} `graphql:"repository(owner: $owner, name: $name)"`
 	}
 
@@ -109,10 +117,10 @@ func (c *Checker) query(owner, name string) (Repository, error) {
 		return Repository{}, fmt.Errorf("can't convert repository id to string: %v", query.Repository.ID)
 	}
 
-	if len(query.Repository.Releases.Edges) == 0 {
-		return Repository{}, fmt.Errorf("can't find any releases for %s/%s", owner, name)
+	if len(query.Repository.Refs.Edges) == 0 {
+		return Repository{}, fmt.Errorf("can't find any tags for %s/%s", owner, name)
 	}
-	latestRelease := query.Repository.Releases.Edges[0].Node
+	latestRelease := query.Repository.Refs.Edges[0].Node
 
 	releaseID, ok := latestRelease.ID.(string)
 	if !ok {
@@ -129,9 +137,9 @@ func (c *Checker) query(owner, name string) (Repository, error) {
 		Release: Release{
 			ID:          releaseID,
 			Name:        string(latestRelease.Name),
-			Description: string(latestRelease.Description),
-			URL:         *latestRelease.URL.URL,
-			PublishedAt: latestRelease.PublishedAt.Time,
+			Description: string(latestRelease.Target.Tag.Message),
+			URL:         *latestRelease.Target.Tag.CommitUrl.URL,
+			PublishedAt: latestRelease.Target.Tag.Tagger.Date.Time,
 		},
 	}, nil
 }
